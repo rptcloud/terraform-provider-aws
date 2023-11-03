@@ -371,7 +371,7 @@ testacc-short: fmtcheck ## Run acceptace tests with the -short flag
 	TF_ACC=1 $(GO_VER) test ./$(PKG_NAME)/... -v -short -count $(TEST_COUNT) -parallel $(ACCTEST_PARALLELISM) $(RUNARGS) $(TESTARGS) -timeout $(ACCTEST_TIMEOUT)
 
 tfsdk2fw: ## Install tfsdk2fw
-	cd tools/tfsdk2fw && $(GO_VER) install github.com/hashicorp/terraform-provider-aws/tools/tfsdk2fw
+	cd tools/tfsdk2fw && go mod tidy && $(GO_VER) install github.com/hashicorp/terraform-provider-aws/tools/tfsdk2fw
 
 tools: ## Install tools
 	cd .ci/providerlint && $(GO_VER) install .
