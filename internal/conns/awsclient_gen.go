@@ -10,6 +10,7 @@ import (
 	appconfig_sdkv2 "github.com/aws/aws-sdk-go-v2/service/appconfig"
 	athena_sdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	auditmanager_sdkv2 "github.com/aws/aws-sdk-go-v2/service/auditmanager"
+	batch_sdkv2 "github.com/aws/aws-sdk-go-v2/service/batch"
 	cleanrooms_sdkv2 "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
 	cloudcontrol_sdkv2 "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cloudwatchlogs_sdkv2 "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -317,6 +318,10 @@ func (c *AWSClient) BackupConn(ctx context.Context) *backup_sdkv1.Backup {
 
 func (c *AWSClient) BatchConn(ctx context.Context) *batch_sdkv1.Batch {
 	return errs.Must(conn[*batch_sdkv1.Batch](ctx, c, names.Batch))
+}
+
+func (c *AWSClient) BatchClient(ctx context.Context) *batch_sdkv2.Client {
+	return errs.Must(client[*batch_sdkv2.Client](ctx, c, names.Batch))
 }
 
 func (c *AWSClient) BedrockConn(ctx context.Context) *bedrock_sdkv1.Bedrock {

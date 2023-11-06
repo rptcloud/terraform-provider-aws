@@ -30,6 +30,7 @@ const (
 	ACMEndpointID                        = "acm"
 	AthenaEndpointID                     = "athena"
 	AuditManagerEndpointID               = "auditmanager"
+	BatchEndpointID                      = "batch"
 	CleanRoomsEndpointID                 = "cleanrooms"
 	CloudWatchLogsEndpointID             = "logs"
 	CodeStarConnectionsEndpointID        = "codestar-connections"
