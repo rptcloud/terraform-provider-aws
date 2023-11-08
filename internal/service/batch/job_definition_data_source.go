@@ -36,30 +36,23 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/batch"
+	batchtypes "github.com/aws/aws-sdk-go-v2/service/batch/types"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
 	"github.com/hashicorp/terraform-provider-aws/internal/framework"
 	"github.com/hashicorp/terraform-provider-aws/internal/framework/flex"
+	fwtypes "github.com/hashicorp/terraform-provider-aws/internal/framework/types"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
-// TIP: ==== FILE STRUCTURE ====
-// All data sources should follow this basic outline. Improve this data source's
-// maintainability by sticking to it.
-//
-// 1. Package declaration
-// 2. Imports
-// 3. Main data source struct with schema method
-// 4. Read method
-// 5. Other functions (flatteners, expanders, waiters, finders, etc.)
-
-// Function annotations are used for datasource registration to the Provider. DO NOT EDIT.
-// @FrameworkDataSource(name="Job Definition")
 func newDataSourceJobDefinition(context.Context) (datasource.DataSourceWithConfigure, error) {
 	return &dataSourceJobDefinition{}, nil
 }
@@ -67,6 +60,15 @@ func newDataSourceJobDefinition(context.Context) (datasource.DataSourceWithConfi
 const (
 	DSNameJobDefinition = "Job Definition Data Source"
 )
+
+func (r *resourceJobQueue) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(
+			path.MatchRoot("arn"),
+			path.MatchRoot("name"),
+		),
+	}
+}
 
 type dataSourceJobDefinition struct {
 	framework.DataSourceWithConfigure
@@ -76,53 +78,31 @@ func (d *dataSourceJobDefinition) Metadata(_ context.Context, req datasource.Met
 	resp.TypeName = "aws_batch_job_definition"
 }
 
-// TIP: ==== SCHEMA ====
-// In the schema, add each of the arguments and attributes in snake
-// case (e.g., delete_automated_backups).
-// * Alphabetize arguments to make them easier to find.
-// * Do not add a blank line between arguments/attributes.
-//
-// Users can configure argument values while attribute values cannot be
-// configured and are used as output. Arguments have either:
-// Required: true,
-// Optional: true,
-//
-// All attributes will be computed and some arguments. If users will
-// want to read updated information or detect drift for an argument,
-// it should be computed:
-// Computed: true,
-//
-// You will typically find arguments in the input struct
-// (e.g., CreateDBInstanceInput) for the create operation. Sometimes
-// they are only in the input struct (e.g., ModifyDBInstanceInput) for
-// the modify operation.
-//
-// For more about schema options, visit
-// https://developer.hashicorp.com/terraform/plugin/framework/handling-data/schemas?page=schemas
 func (d *dataSourceJobDefinition) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"arn": framework.ARNAttributeComputedOnly(),
-			"id":  framework.IDAttribute(),
+			"arn": schema.StringAttribute{
+				Optional:   true,
+				CustomType: fwtypes.ARNType,
+			},
+			"id": framework.IDAttribute(),
 			"name": schema.StringAttribute{
-				Required: true,
+				Optional: true,
 			},
 			names.AttrTags: tftags.TagsAttributeComputedOnly(),
 			"type": schema.StringAttribute{
 				Computed: true,
 			},
 			"revision": schema.Int64Attribute{
-				Computed: true,
+				Optional: true,
 			},
 			"status": schema.StringAttribute{
 				Optional: true,
+				// Default: JobDefinitionStatusActive,
+				// https://github.com/hashicorp/terraform-plugin-framework/issues/751#issuecomment-1799757575
 				Validators: []validator.String{
-					// validator.StringInSlice([]string{"ACTIVE", "INACTIVE"}),
-					stringvalidator.OneOf([]string{"ACTIVE", "INACTIVE"}...),
+					stringvalidator.OneOf(JobDefinitionStatus_Values()...),
 				},
-				// []schema.ValueValidator{
-				// 	schema.StringInSlice([]string{"ACTIVE", "INACTIVE"}),
-				// },
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -144,8 +124,6 @@ func (d *dataSourceJobDefinition) Schema(ctx context.Context, req datasource.Sch
 	}
 }
 
-// TIP: ==== ASSIGN CRUD METHODS ====
-// Data sources only have a read method.
 func (d *dataSourceJobDefinition) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	conn := d.Meta().BatchClient(ctx)
 
@@ -155,41 +133,70 @@ func (d *dataSourceJobDefinition) Read(ctx context.Context, req datasource.ReadR
 		return
 	}
 
-	input := &batch.DescribeJobDefinitionsInput{
-		JobDefinitionName: flex.StringFromFramework(ctx, data.Name),
+	jd := batchtypes.JobDefinition{}
+
+	if !data.ARN.IsNull() {
+		out, err := FindJobDefinitionV2ByARN(ctx, conn, *flex.StringFromFramework(ctx, data.ARN))
+
+		if err != nil {
+			resp.Diagnostics.AddError(
+				create.ProblemStandardMessage(names.Batch, create.ErrActionReading, DSNameJobDefinition, data.Name.String(), err),
+				err.Error(),
+			)
+			return
+		}
+		jd = *out
 	}
 
-	if !data.Status.IsNull() {
-		input.Status = flex.StringFromFramework(ctx, data.Status)
-	}
-	// TIP: -- 3. Get information about a resource from AWS
-	// out, err := findJobDefinitionByName(ctx, conn, data.Name.ValueString())
+	// TODO: Paginate ListJobDefinitionsV2ByNameWithStatus
+	if !data.Name.IsNull() {
+		input := &batch.DescribeJobDefinitionsInput{
+			JobDefinitionName: flex.StringFromFramework(ctx, data.Name),
+		}
 
-	// TODO: logic for which JD to get
-	out, err := conn.DescribeJobDefinitions(ctx, input)
-	// TODO: what if output is nil?
-	jd := out.JobDefinitions[0]
-	if err != nil {
-		resp.Diagnostics.AddError(
-			create.ProblemStandardMessage(names.Batch, create.ErrActionReading, DSNameJobDefinition, data.Name.String(), err),
-			err.Error(),
-		)
-		return
+		if data.Status.IsNull() {
+			active := JobDefinitionStatusActive
+			input.Status = &active
+		} else {
+			input.Status = flex.StringFromFramework(ctx, data.Status)
+		}
+
+		jds, err := ListJobDefinitionsV2ByNameWithStatus(ctx, conn, input)
+
+		if err != nil {
+			resp.Diagnostics.AddError(
+				create.ProblemStandardMessage(names.Batch, create.ErrActionReading, DSNameJobDefinition, data.Name.String(), err),
+				err.Error(),
+			)
+		}
+
+		if !data.Revision.IsNull() {
+			for _, _jd := range jds {
+				if *_jd.Revision == int32(*data.Revision.ValueInt64Pointer()) {
+					jd = _jd
+				}
+			}
+
+			if jd.JobDefinitionArn == nil {
+				resp.Diagnostics.AddError(
+					create.ProblemStandardMessage(names.Batch, create.ErrActionReading, DSNameJobDefinition, data.Name.String(), err),
+					err.Error(),
+				)
+			}
+		}
+
+		if data.Revision.IsNull() {
+			var latestRevision int32 = 0
+			for _, _jd := range jds {
+				if *_jd.Revision > latestRevision {
+					latestRevision = *_jd.Revision
+					jd = _jd
+				}
+			}
+		}
 	}
 
-	// TIP: -- 4. Set the ID, arguments, and attributes
-	//
-	// For simple data types (i.e., schema.StringAttribute, schema.BoolAttribute,
-	// schema.Int64Attribute, and schema.Float64Attribue), simply setting the
-	// appropriate data struct field is sufficient. The flex package implements
-	// helpers for converting between Go and Plugin-Framework types seamlessly. No
-	// error or nil checking is necessary.
-	//
-	// However, there are some situations where more handling is needed such as
-	// complex data types (e.g., schema.ListAttribute, schema.SetAttribute). In
-	// these cases the flatten function may have a diagnostics return value, which
-	// should be appended to resp.Diagnostics.
-	data.ARN = flex.StringToFramework(ctx, jd.JobDefinitionArn)
+	data.ARN = flex.StringToFrameworkARN(ctx, jd.JobDefinitionArn)
 	data.ID = flex.StringToFramework(ctx, jd.JobDefinitionArn)
 	data.Name = flex.StringToFramework(ctx, jd.JobDefinitionName)
 	data.Type = flex.StringToFramework(ctx, jd.Type)
@@ -222,8 +229,7 @@ func (d *dataSourceJobDefinition) Read(ctx context.Context, req datasource.ReadR
 // See more:
 // https://developer.hashicorp.com/terraform/plugin/framework/handling-data/accessing-values
 type dataSourceJobDefinitionData struct {
-	ARN types.String `tfsdk:"arn"`
-	// ComplexArgument types.List   `tfsdk:"complex_argument"`
+	ARN      fwtypes.ARN  `tfsdk:"arn"`
 	ID       types.String `tfsdk:"id"`
 	Name     types.String `tfsdk:"name"`
 	Revision types.Int64  `tfsdk:"revision"`

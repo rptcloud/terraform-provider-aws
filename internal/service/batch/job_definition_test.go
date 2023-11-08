@@ -537,7 +537,7 @@ func TestAccBatchJobDefinition_NodeProperties_basic(t *testing.T) {
 	})
 }
 
-func TestAccBatchJobDefinition_ContainerProperties_createTypeMultiNodeErr(t *testing.T) {
+func TestAccBatchJobDefinition_NodeProperties_createTypeMultiNodeErr(t *testing.T) {
 	ctx := acctest.Context(t)
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
 
@@ -610,7 +610,7 @@ func testAccCheckJobDefinitionDestroy(ctx context.Context) resource.TestCheckFun
 			re := regexache.MustCompile(`job-definition/(.*?):`)
 			name := re.FindStringSubmatch(rs.Primary.ID)[1]
 
-			jds, err := tfbatch.ListActiveJobDefinitionByName(ctx, conn, name)
+			jds, err := tfbatch.ListActiveJobDefinitionsByNameWithStatus(ctx, conn, name, tfbatch.JobDefinitionStatusActive)
 
 			if count := len(jds); count == 0 {
 				continue
@@ -713,10 +713,6 @@ resource "aws_batch_job_definition" "test" {
     ]
 }
 CONTAINER_PROPERTIES
-<<<<<<< HEAD
-=======
-
->>>>>>> 015d4ae5e9 (clean up tests and align naming conventions)
 }
 `, rName)
 }
@@ -966,59 +962,6 @@ resource "aws_batch_job_definition" "test" {
 `, rName)
 }
 
-<<<<<<< HEAD
-func testAccJobDefinitionConfig_NodeProperties_advancedUpdate(rName string) string {
-=======
-func testAccJobDefinitionConfig_NodeProperties_advanced(rName string) string {
->>>>>>> 015d4ae5e9 (clean up tests and align naming conventions)
-	return fmt.Sprintf(`
-resource "aws_batch_job_definition" "test" {
-  name = %[1]q
-  type = "multinode"
-  parameters = {
-    param1 = "val1"
-    param2 = "val2"
-  }
-  timeout {
-    attempt_duration_seconds = 60
-  }
-
-  node_properties = jsonencode({
-    mainNode = 1
-    nodeRangeProperties = [
-      {
-        container = {
-          "command" : ["ls", "-la"],
-          "image" : "busybox",
-          "memory" : 512,
-          "vcpus" : 1
-        }
-        targetNodes = "0:"
-      },
-      {
-        container = {
-          command     = ["echo", "test"]
-          environment = []
-          image       = "busybox"
-          memory      = 128
-          mountPoints = []
-          ulimits     = []
-          vcpus       = 1
-          volumes     = []
-        }
-        targetNodes = "1:"
-      }
-    ]
-    numNodes = 4
-  })
-}
-`, rName)
-}
-
-<<<<<<< HEAD
-func testAccJobDefinitionConfig_NodeProperties_createTypeContainerErr(rName string) string {
-	return fmt.Sprintf(`
-=======
 func testAccJobDefinitionConfig_NodeProperties_advancedUpdate(rName string) string {
 	return fmt.Sprintf(`
 resource "aws_batch_job_definition" "test" {
@@ -1066,7 +1009,6 @@ resource "aws_batch_job_definition" "test" {
 
 func testAccJobDefinitionConfig_NodeProperties_createTypeContainerErr(rName string) string {
 	return fmt.Sprintf(`
->>>>>>> 015d4ae5e9 (clean up tests and align naming conventions)
 resource "aws_batch_job_definition" "test" {
   name = %[1]q
   type = "container"
@@ -1129,10 +1071,6 @@ resource "aws_batch_job_definition" "test" {
     memory  = 128
     vcpus   = 1
   })
-<<<<<<< HEAD
-=======
-
->>>>>>> 015d4ae5e9 (clean up tests and align naming conventions)
 }
 `, rName)
 }

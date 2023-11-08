@@ -30,11 +30,6 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
-const (
-	jobDefinitionStatusInactive = "INACTIVE"
-	jobDefinitionStatusActive   = "ACTIVE"
-)
-
 // @SDKResource("aws_batch_job_definition", name="Job Definition")
 // @Tags(identifierAttribute="arn")
 func ResourceJobDefinition() *schema.Resource {
@@ -457,7 +452,7 @@ func resourceJobDefinitionDelete(ctx context.Context, d *schema.ResourceData, me
 	conn := meta.(*conns.AWSClient).BatchConn(ctx)
 
 	name := d.Get("name").(string)
-	jds, err := ListActiveJobDefinitionByName(ctx, conn, name)
+	jds, err := ListActiveJobDefinitionsByNameWithStatus(ctx, conn, name, JobDefinitionStatusActive)
 
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "deleting Batch Job Definitions (%s): %s", name, err)
@@ -489,7 +484,7 @@ func FindJobDefinitionByARN(ctx context.Context, conn *batch.Batch, arn string) 
 		return nil, err
 	}
 
-	if status := aws.StringValue(output.Status); status == jobDefinitionStatusInactive {
+	if status := aws.StringValue(output.Status); status == JobDefinitionStatusInactive {
 		return nil, &retry.NotFoundError{
 			Message:     status,
 			LastRequest: input,
@@ -517,10 +512,10 @@ func findJobDefinition(ctx context.Context, conn *batch.Batch, input *batch.Desc
 	return output.JobDefinitions[0], nil
 }
 
-func ListActiveJobDefinitionByName(ctx context.Context, conn *batch.Batch, name string) ([]*batch.JobDefinition, error) {
+func ListActiveJobDefinitionsByNameWithStatus(ctx context.Context, conn *batch.Batch, name string, status string) ([]*batch.JobDefinition, error) {
 	input := &batch.DescribeJobDefinitionsInput{
 		JobDefinitionName: aws.String(name),
-		Status:            aws.String(jobDefinitionStatusActive),
+		Status:            aws.String(status),
 	}
 
 	output, err := conn.DescribeJobDefinitionsWithContext(ctx, input)
