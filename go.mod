@@ -6,7 +6,7 @@ require (
 	github.com/ProtonMail/go-crypto v0.0.0-20230923063757-afb1ddc0824c
 	github.com/YakDriver/regexache v0.23.0
 	github.com/aws/aws-sdk-go v1.47.0
-	github.com/aws/aws-sdk-go-v2 v1.22.0
+	github.com/aws/aws-sdk-go-v2 v1.23.2
 	github.com/aws/aws-sdk-go-v2/config v1.20.0
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.14.0
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.12.0
@@ -16,6 +16,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/appconfig v1.24.0
 	github.com/aws/aws-sdk-go-v2/service/athena v1.33.0
 	github.com/aws/aws-sdk-go-v2/service/auditmanager v1.28.0
+	github.com/aws/aws-sdk-go-v2/service/batch v1.29.5
 	github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.5.0
 	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.13.0
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.25.0
@@ -124,8 +125,8 @@ require (
 	github.com/armon/go-radix v1.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.14.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.2.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.5.0 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.2.5 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.5.5 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.4.0 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.2.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.23.0 // indirect
@@ -138,7 +139,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.16.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.18.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.24.0 // indirect
-	github.com/aws/smithy-go v1.16.0 // indirect
+	github.com/aws/smithy-go v1.17.0 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/boombuler/barcode v1.0.1 // indirect
 	github.com/bufbuild/protocompile v0.6.0 // indirect
