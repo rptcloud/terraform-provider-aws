@@ -17,7 +17,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -165,7 +164,7 @@ func (r *resourceJobQueue) Create(ctx context.Context, request resource.CreateRe
 		input.SchedulingPolicyArn = flex.StringFromFramework(ctx, data.SchedulingPolicyARN)
 	}
 
-	output, err := conn.CreateJobQueueWithContext(ctx, &input)
+	_, err := conn.CreateJobQueueWithContext(ctx, &input)
 
 	if err != nil {
 		response.Diagnostics.AddError(
@@ -175,8 +174,8 @@ func (r *resourceJobQueue) Create(ctx context.Context, request resource.CreateRe
 		return
 	}
 
-	state := data
-	state.ID = flex.StringToFramework(ctx, output.JobQueueArn)
+	// state := data
+	// state.ID = flex.StringToFramework(ctx, output.JobQueueArn)
 
 	createTimeout := r.CreateTimeout(ctx, data.Timeouts)
 	out, err := waitJobQueueCreated(ctx, conn, data.JobQueueName.ValueString(), createTimeout)
@@ -189,8 +188,11 @@ func (r *resourceJobQueue) Create(ctx context.Context, request resource.CreateRe
 		return
 	}
 
-	response.Diagnostics.Append(state.refreshFromOutput(ctx, out)...)
-	response.Diagnostics.Append(response.State.Set(ctx, &state)...)
+	// response.Diagnostics.Append(state.refreshFromOutput(ctx, out)...) dl2148
+	response.Diagnostics.Append(flex.Flatten(ctx, out, &data)...)
+	data.ID = flex.StringToFramework(ctx, out.JobQueueArn)
+	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
+	// response.Diagnostics.Append(response.State.Set(ctx, &state)...)
 }
 
 func (r *resourceJobQueue) Read(ctx context.Context, request resource.ReadRequest, response *resource.ReadResponse) {
@@ -219,7 +221,9 @@ func (r *resourceJobQueue) Read(ctx context.Context, request resource.ReadReques
 		return
 	}
 
-	response.Diagnostics.Append(data.refreshFromOutput(ctx, out)...)
+	// response.Diagnostics.Append(data.refreshFromOutput(ctx, out)...)
+	response.Diagnostics.Append(flex.Flatten(ctx, out, &data)...)
+	data.ID = flex.StringToFramework(ctx, out.JobQueueArn)
 	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
 }
 
@@ -299,7 +303,8 @@ func (r *resourceJobQueue) Update(ctx context.Context, request resource.UpdateRe
 			return
 		}
 
-		response.Diagnostics.Append(plan.refreshFromOutput(ctx, out)...)
+		// response.Diagnostics.Append(plan.refreshFromOutput(ctx, out)...)
+		response.Diagnostics.Append(flex.Flatten(ctx, &out, &plan)...)
 	}
 
 	response.Diagnostics.Append(response.State.Set(ctx, &plan)...)
@@ -369,6 +374,8 @@ func (r *resourceJobQueue) UpgradeState(ctx context.Context) map[int64]resource.
 }
 
 type resourceJobQueueData struct {
+	_ struct{} `type:"structure"`
+
 	ARN                     types.String                                             `tfsdk:"arn"`
 	ComputeEnvironments     types.List                                               `tfsdk:"compute_environments"`
 	ComputeEnvironmentOrder fwtypes.ListNestedObjectValueOf[computeEnvironmentOrder] `tfsdk:"compute_environment_order"`
@@ -387,20 +394,21 @@ type computeEnvironmentOrder struct {
 	Order              types.Int64  `tfsdk:"order"`
 }
 
-func (r *resourceJobQueueData) refreshFromOutput(ctx context.Context, out *batch.JobQueueDetail) diag.Diagnostics { //nolint:unparam
-	var diags diag.Diagnostics
+// func (r *resourceJobQueueData) refreshFromOutput(ctx context.Context, out *batch.JobQueueDetail) diag.Diagnostics { //nolint:unparam
+// 	var diags diag.Diagnostics
 
-	r.ARN = flex.StringToFrameworkLegacy(ctx, out.JobQueueArn)
-	r.JobQueueName = flex.StringToFramework(ctx, out.JobQueueName)
-	r.ComputeEnvironments = flex.FlattenFrameworkStringValueListLegacy(ctx, flattenComputeEnvironmentOrder(out.ComputeEnvironmentOrder))
-	r.Priority = flex.Int64ToFrameworkLegacy(ctx, out.Priority)
-	r.SchedulingPolicyARN = flex.StringToFrameworkARN(ctx, out.SchedulingPolicyArn)
-	r.State = flex.StringToFrameworkLegacy(ctx, out.State)
+// 	// r.ARN = flex.StringToFrameworkLegacy(ctx, out.JobQueueArn)
+// 	// r.JobQueueName = flex.StringToFramework(ctx, out.JobQueueName)
+// 	// r.ComputeEnvironments = flex.FlattenFrameworkStringValueListLegacy(ctx, flattenComputeEnvironmentOrder(out.ComputeEnvironmentOrder))
+// 	// r.Priority = flex.Int64ToFrameworkLegacy(ctx, out.Priority)
+// 	// r.SchedulingPolicyARN = flex.StringToFrameworkARN(ctx, out.SchedulingPolicyArn)
+// 	// r.State = flex.StringToFrameworkLegacy(ctx, out.State)
+// 	flex.Flatten(ctx, instanceConnectEndpoint, &data)
 
-	setTagsOut(ctx, out.Tags)
+// 	setTagsOut(ctx, out.Tags)
 
-	return diags
-}
+// 	return diags
+// }
 
 func expandComputeEnvironmentOrder(order []string) (envs []*batch.ComputeEnvironmentOrder) {
 	for i, env := range order {

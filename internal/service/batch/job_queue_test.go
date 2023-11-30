@@ -38,8 +38,8 @@ func TestAccBatchJobQueue_basic(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckJobQueueExists(ctx, resourceName, &jobQueue1),
 					acctest.CheckResourceAttrRegionalARN(resourceName, "arn", "batch", fmt.Sprintf("job-queue/%s", rName)),
-					resource.TestCheckResourceAttr(resourceName, "compute_environments.#", "1"),
-					resource.TestCheckResourceAttrPair(resourceName, "compute_environments.0", "aws_batch_compute_environment.test", "arn"),
+					resource.TestCheckResourceAttr(resourceName, "compute_environment_order.#", "1"),
+					resource.TestCheckResourceAttrPair(resourceName, "compute_environment_order.0", "aws_batch_compute_environment.test", "arn"),
 					resource.TestCheckResourceAttr(resourceName, "name", rName),
 					resource.TestCheckResourceAttr(resourceName, "priority", "1"),
 					resource.TestCheckResourceAttr(resourceName, "state", batch.JQStateEnabled),
