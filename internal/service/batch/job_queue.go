@@ -58,7 +58,7 @@ type resourceJobQueue struct {
 
 func (r *resourceJobQueue) ConfigValidators(_ context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
-		resourcevalidator.Conflicting(
+		resourcevalidator.ExactlyOneOf(
 			path.MatchRoot("compute_environments"),
 			path.MatchRoot("compute_environment_order"),
 		),
@@ -94,8 +94,8 @@ func (r *resourceJobQueue) Schema(ctx context.Context, request resource.SchemaRe
 				Required: true,
 			},
 			"scheduling_policy_arn": schema.StringAttribute{
-				CustomType: fwtypes.ARNType,
-				Optional:   true,
+				// CustomType: fwtypes.ARNType,
+				Optional: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -125,7 +125,6 @@ func (r *resourceJobQueue) Schema(ctx context.Context, request resource.SchemaRe
 						Required: true,
 					},
 					"compute_environment": schema.StringAttribute{
-						// CustomType: fwtypes.ARNType,
 						Required: true,
 					},
 				},
@@ -146,10 +145,6 @@ func (r *resourceJobQueue) Create(ctx context.Context, request resource.CreateRe
 		return
 	}
 
-	// PR Note: After we get the new parameter working (compute_environment_order), we will have to include logic
-	// so either parameter can work until the next major version
-	// ceo := flex.ExpandFrameworkStringValueList(ctx, data.ComputeEnvironments)
-
 	input := batch.CreateJobQueueInput{
 		Tags: getTagsIn(ctx),
 	}
@@ -160,8 +155,14 @@ func (r *resourceJobQueue) Create(ctx context.Context, request resource.CreateRe
 		return
 	}
 
-	if !data.SchedulingPolicyARN.IsNull() {
-		input.SchedulingPolicyArn = flex.StringFromFramework(ctx, data.SchedulingPolicyARN)
+	// if !data.SchedulingPolicyARN.IsNull() {
+	// 	input.SchedulingPolicyArn = flex.StringFromFramework(ctx, data.SchedulingPolicyARN)
+	// }
+
+	// ComputeEnvironments is deprecated in favor of ComputeEnvironmentOrder
+	if !data.ComputeEnvironments.IsNull() {
+		ceo := flex.ExpandFrameworkStringValueList(ctx, data.ComputeEnvironments)
+		input.ComputeEnvironmentOrder = expandComputeEnvironmentOrder(ceo)
 	}
 
 	_, err := conn.CreateJobQueueWithContext(ctx, &input)
@@ -174,9 +175,6 @@ func (r *resourceJobQueue) Create(ctx context.Context, request resource.CreateRe
 		return
 	}
 
-	// state := data
-	// state.ID = flex.StringToFramework(ctx, output.JobQueueArn)
-
 	createTimeout := r.CreateTimeout(ctx, data.Timeouts)
 	out, err := waitJobQueueCreated(ctx, conn, data.JobQueueName.ValueString(), createTimeout)
 
@@ -188,11 +186,10 @@ func (r *resourceJobQueue) Create(ctx context.Context, request resource.CreateRe
 		return
 	}
 
-	// response.Diagnostics.Append(state.refreshFromOutput(ctx, out)...) dl2148
 	response.Diagnostics.Append(flex.Flatten(ctx, out, &data)...)
 	data.ID = flex.StringToFramework(ctx, out.JobQueueArn)
+	data.ARN = flex.StringToFramework(ctx, out.JobQueueArn)
 	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
-	// response.Diagnostics.Append(response.State.Set(ctx, &state)...)
 }
 
 func (r *resourceJobQueue) Read(ctx context.Context, request resource.ReadRequest, response *resource.ReadResponse) {
@@ -221,9 +218,13 @@ func (r *resourceJobQueue) Read(ctx context.Context, request resource.ReadReques
 		return
 	}
 
-	// response.Diagnostics.Append(data.refreshFromOutput(ctx, out)...)
 	response.Diagnostics.Append(flex.Flatten(ctx, out, &data)...)
+	if !data.ComputeEnvironments.IsNull() {
+		data.ComputeEnvironments = flex.FlattenFrameworkStringValueListLegacy(ctx, flattenComputeEnvironmentOrder(out.ComputeEnvironmentOrder))
+	}
+
 	data.ID = flex.StringToFramework(ctx, out.JobQueueArn)
+	data.ARN = flex.StringToFramework(ctx, out.JobQueueArn)
 	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
 }
 
@@ -303,7 +304,6 @@ func (r *resourceJobQueue) Update(ctx context.Context, request resource.UpdateRe
 			return
 		}
 
-		// response.Diagnostics.Append(plan.refreshFromOutput(ctx, out)...)
 		response.Diagnostics.Append(flex.Flatten(ctx, &out, &plan)...)
 	}
 
@@ -382,7 +382,7 @@ type resourceJobQueueData struct {
 	ID                      types.String                                             `tfsdk:"id"`
 	JobQueueName            types.String                                             `tfsdk:"name"`
 	Priority                types.Int64                                              `tfsdk:"priority"`
-	SchedulingPolicyARN     fwtypes.ARN                                              `tfsdk:"scheduling_policy_arn"`
+	SchedulingPolicyARN     types.String                                             `tfsdk:"scheduling_policy_arn"`
 	State                   types.String                                             `tfsdk:"state"`
 	Tags                    types.Map                                                `tfsdk:"tags"`
 	TagsAll                 types.Map                                                `tfsdk:"tags_all"`
@@ -403,7 +403,6 @@ type computeEnvironmentOrder struct {
 // 	// r.Priority = flex.Int64ToFrameworkLegacy(ctx, out.Priority)
 // 	// r.SchedulingPolicyARN = flex.StringToFrameworkARN(ctx, out.SchedulingPolicyArn)
 // 	// r.State = flex.StringToFrameworkLegacy(ctx, out.State)
-// 	flex.Flatten(ctx, instanceConnectEndpoint, &data)
 
 // 	setTagsOut(ctx, out.Tags)
 
