@@ -13,9 +13,10 @@ import (
 	"github.com/YakDriver/regexache"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go/service/batch"
+
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -55,6 +56,15 @@ type resourceJobQueue struct {
 	framework.WithTimeouts
 }
 
+func (r *resourceJobQueue) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(
+			path.MatchRoot("compute_environments"),
+			path.MatchRoot("compute_environment_order"),
+		),
+	}
+}
+
 func (r *resourceJobQueue) Metadata(_ context.Context, request resource.MetadataRequest, response *resource.MetadataResponse) {
 	response.TypeName = "aws_batch_job_queue"
 }
@@ -65,8 +75,9 @@ func (r *resourceJobQueue) Schema(ctx context.Context, request resource.SchemaRe
 		Attributes: map[string]schema.Attribute{
 			"arn": framework.ARNAttributeComputedOnly(),
 			"compute_environments": schema.ListAttribute{
-				ElementType: fwtypes.ARNType,
-				Required:    true,
+				ElementType:        fwtypes.ARNType,
+				Optional:           true,
+				DeprecationMessage: "This parameter will be replaced by `compute_environments_order`.",
 			},
 			"id": framework.IDAttribute(),
 			"name": schema.StringAttribute{
@@ -83,8 +94,8 @@ func (r *resourceJobQueue) Schema(ctx context.Context, request resource.SchemaRe
 				Required: true,
 			},
 			"scheduling_policy_arn": schema.StringAttribute{
-				CustomType: fwtypes.ARNType,
-				Optional:   true,
+				// CustomType: fwtypes.ARNType,
+				Optional: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -106,6 +117,19 @@ func (r *resourceJobQueue) Schema(ctx context.Context, request resource.SchemaRe
 			Update: true,
 			Delete: true,
 		}),
+		"compute_environment_order": schema.ListNestedBlock{
+			CustomType: fwtypes.NewListNestedObjectTypeOf[computeEnvironmentOrder](ctx),
+			NestedObject: schema.NestedBlockObject{
+				Attributes: map[string]schema.Attribute{
+					"order": schema.Int64Attribute{
+						Required: true,
+					},
+					"compute_environment": schema.StringAttribute{
+						Required: true,
+					},
+				},
+			},
+		},
 	}
 
 	response.Schema = s
@@ -121,46 +145,51 @@ func (r *resourceJobQueue) Create(ctx context.Context, request resource.CreateRe
 		return
 	}
 
-	ceo := flex.ExpandFrameworkStringValueList(ctx, data.ComputeEnvironments)
-
 	input := batch.CreateJobQueueInput{
-		ComputeEnvironmentOrder: expandComputeEnvironmentOrder(ceo),
-		JobQueueName:            flex.StringFromFramework(ctx, data.Name),
-		Priority:                flex.Int64FromFramework(ctx, data.Priority),
-		State:                   flex.StringFromFramework(ctx, data.State),
-		Tags:                    getTagsIn(ctx),
+		Tags: getTagsIn(ctx),
 	}
 
-	if !data.SchedulingPolicyARN.IsNull() {
-		input.SchedulingPolicyArn = flex.StringFromFramework(ctx, data.SchedulingPolicyARN)
+	response.Diagnostics.Append(flex.Expand(ctx, &data, &input)...)
+
+	if response.Diagnostics.HasError() {
+		return
 	}
 
-	output, err := conn.CreateJobQueueWithContext(ctx, &input)
+	// if !data.SchedulingPolicyARN.IsNull() {
+	// 	input.SchedulingPolicyArn = flex.StringFromFramework(ctx, data.SchedulingPolicyARN)
+	// }
+
+	// ComputeEnvironments is deprecated in favor of ComputeEnvironmentOrder
+	if !data.ComputeEnvironments.IsNull() {
+		ceo := flex.ExpandFrameworkStringValueList(ctx, data.ComputeEnvironments)
+		input.ComputeEnvironmentOrder = expandComputeEnvironmentOrder(ceo)
+	}
+
+	_, err := conn.CreateJobQueueWithContext(ctx, &input)
 
 	if err != nil {
 		response.Diagnostics.AddError(
-			create.ProblemStandardMessage(names.Batch, create.ErrActionCreating, ResNameJobQueue, data.Name.ValueString(), nil),
+			create.ProblemStandardMessage(names.Batch, create.ErrActionCreating, ResNameJobQueue, data.JobQueueName.ValueString(), nil),
 			err.Error(),
 		)
 		return
 	}
-
-	state := data
-	state.ID = flex.StringToFramework(ctx, output.JobQueueArn)
 
 	createTimeout := r.CreateTimeout(ctx, data.Timeouts)
-	out, err := waitJobQueueCreated(ctx, conn, data.Name.ValueString(), createTimeout)
+	out, err := waitJobQueueCreated(ctx, conn, data.JobQueueName.ValueString(), createTimeout)
 
 	if err != nil {
 		response.Diagnostics.AddError(
-			create.ProblemStandardMessage(names.Batch, create.ErrActionWaitingForCreation, ResNameJobQueue, data.Name.ValueString(), nil),
+			create.ProblemStandardMessage(names.Batch, create.ErrActionWaitingForCreation, ResNameJobQueue, data.JobQueueName.ValueString(), nil),
 			err.Error(),
 		)
 		return
 	}
 
-	response.Diagnostics.Append(state.refreshFromOutput(ctx, out)...)
-	response.Diagnostics.Append(response.State.Set(ctx, &state)...)
+	response.Diagnostics.Append(flex.Flatten(ctx, out, &data)...)
+	data.ID = flex.StringToFramework(ctx, out.JobQueueArn)
+	data.ARN = flex.StringToFramework(ctx, out.JobQueueArn)
+	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
 }
 
 func (r *resourceJobQueue) Read(ctx context.Context, request resource.ReadRequest, response *resource.ReadResponse) {
@@ -177,7 +206,7 @@ func (r *resourceJobQueue) Read(ctx context.Context, request resource.ReadReques
 
 	if err != nil {
 		response.Diagnostics.AddError(
-			create.ProblemStandardMessage(names.Batch, create.ErrActionUpdating, ResNameJobQueue, data.Name.ValueString(), err),
+			create.ProblemStandardMessage(names.Batch, create.ErrActionUpdating, ResNameJobQueue, data.JobQueueName.ValueString(), err),
 			err.Error(),
 		)
 		return
@@ -189,7 +218,13 @@ func (r *resourceJobQueue) Read(ctx context.Context, request resource.ReadReques
 		return
 	}
 
-	response.Diagnostics.Append(data.refreshFromOutput(ctx, out)...)
+	response.Diagnostics.Append(flex.Flatten(ctx, out, &data)...)
+	if !data.ComputeEnvironments.IsNull() {
+		data.ComputeEnvironments = flex.FlattenFrameworkStringValueListLegacy(ctx, flattenComputeEnvironmentOrder(out.ComputeEnvironmentOrder))
+	}
+
+	data.ID = flex.StringToFramework(ctx, out.JobQueueArn)
+	data.ARN = flex.StringToFramework(ctx, out.JobQueueArn)
 	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
 }
 
@@ -206,7 +241,7 @@ func (r *resourceJobQueue) Update(ctx context.Context, request resource.UpdateRe
 
 	var update bool
 	input := &batch.UpdateJobQueueInput{
-		JobQueue: flex.StringFromFramework(ctx, plan.Name),
+		JobQueue: flex.StringFromFramework(ctx, plan.JobQueueName),
 	}
 
 	if !plan.ComputeEnvironments.Equal(state.ComputeEnvironments) {
@@ -252,7 +287,7 @@ func (r *resourceJobQueue) Update(ctx context.Context, request resource.UpdateRe
 
 		if err != nil {
 			response.Diagnostics.AddError(
-				create.ProblemStandardMessage(names.Batch, create.ErrActionUpdating, ResNameJobQueue, plan.Name.ValueString(), nil),
+				create.ProblemStandardMessage(names.Batch, create.ErrActionUpdating, ResNameJobQueue, plan.JobQueueName.ValueString(), nil),
 				err.Error(),
 			)
 			return
@@ -263,13 +298,13 @@ func (r *resourceJobQueue) Update(ctx context.Context, request resource.UpdateRe
 
 		if err != nil {
 			response.Diagnostics.AddError(
-				create.ProblemStandardMessage(names.Batch, create.ErrActionWaitingForCreation, ResNameJobQueue, plan.Name.ValueString(), nil),
+				create.ProblemStandardMessage(names.Batch, create.ErrActionWaitingForCreation, ResNameJobQueue, plan.JobQueueName.ValueString(), nil),
 				err.Error(),
 			)
 			return
 		}
 
-		response.Diagnostics.Append(plan.refreshFromOutput(ctx, out)...)
+		response.Diagnostics.Append(flex.Flatten(ctx, &out, &plan)...)
 	}
 
 	response.Diagnostics.Append(response.State.Set(ctx, &plan)...)
@@ -290,7 +325,7 @@ func (r *resourceJobQueue) Delete(ctx context.Context, request resource.DeleteRe
 
 	if err != nil {
 		response.Diagnostics.AddError(
-			create.ProblemStandardMessage(names.Batch, create.ErrActionDeleting, ResNameJobQueue, data.Name.ValueString(), nil),
+			create.ProblemStandardMessage(names.Batch, create.ErrActionDeleting, ResNameJobQueue, data.JobQueueName.ValueString(), nil),
 			err.Error(),
 		)
 		return
@@ -302,7 +337,7 @@ func (r *resourceJobQueue) Delete(ctx context.Context, request resource.DeleteRe
 
 	if err != nil {
 		response.Diagnostics.AddError(
-			create.ProblemStandardMessage(names.Batch, create.ErrActionDeleting, ResNameJobQueue, data.Name.ValueString(), nil),
+			create.ProblemStandardMessage(names.Batch, create.ErrActionDeleting, ResNameJobQueue, data.JobQueueName.ValueString(), nil),
 			err.Error(),
 		)
 		return
@@ -312,7 +347,7 @@ func (r *resourceJobQueue) Delete(ctx context.Context, request resource.DeleteRe
 
 	if err != nil {
 		response.Diagnostics.AddError(
-			create.ProblemStandardMessage(names.Batch, create.ErrActionWaitingForDeletion, ResNameJobQueue, data.Name.ValueString(), nil),
+			create.ProblemStandardMessage(names.Batch, create.ErrActionWaitingForDeletion, ResNameJobQueue, data.JobQueueName.ValueString(), nil),
 			err.Error(),
 		)
 		return
@@ -339,32 +374,40 @@ func (r *resourceJobQueue) UpgradeState(ctx context.Context) map[int64]resource.
 }
 
 type resourceJobQueueData struct {
-	ARN                 types.String   `tfsdk:"arn"`
-	ComputeEnvironments types.List     `tfsdk:"compute_environments"`
-	ID                  types.String   `tfsdk:"id"`
-	Name                types.String   `tfsdk:"name"`
-	Priority            types.Int64    `tfsdk:"priority"`
-	SchedulingPolicyARN fwtypes.ARN    `tfsdk:"scheduling_policy_arn"`
-	State               types.String   `tfsdk:"state"`
-	Tags                types.Map      `tfsdk:"tags"`
-	TagsAll             types.Map      `tfsdk:"tags_all"`
-	Timeouts            timeouts.Value `tfsdk:"timeouts"`
+	_ struct{} `type:"structure"`
+
+	ARN                     types.String                                             `tfsdk:"arn"`
+	ComputeEnvironments     types.List                                               `tfsdk:"compute_environments"`
+	ComputeEnvironmentOrder fwtypes.ListNestedObjectValueOf[computeEnvironmentOrder] `tfsdk:"compute_environment_order"`
+	ID                      types.String                                             `tfsdk:"id"`
+	JobQueueName            types.String                                             `tfsdk:"name"`
+	Priority                types.Int64                                              `tfsdk:"priority"`
+	SchedulingPolicyARN     types.String                                             `tfsdk:"scheduling_policy_arn"`
+	State                   types.String                                             `tfsdk:"state"`
+	Tags                    types.Map                                                `tfsdk:"tags"`
+	TagsAll                 types.Map                                                `tfsdk:"tags_all"`
+	Timeouts                timeouts.Value                                           `tfsdk:"timeouts"`
 }
 
-func (r *resourceJobQueueData) refreshFromOutput(ctx context.Context, out *batch.JobQueueDetail) diag.Diagnostics { //nolint:unparam
-	var diags diag.Diagnostics
-
-	r.ARN = flex.StringToFrameworkLegacy(ctx, out.JobQueueArn)
-	r.Name = flex.StringToFramework(ctx, out.JobQueueName)
-	r.ComputeEnvironments = flex.FlattenFrameworkStringValueListLegacy(ctx, flattenComputeEnvironmentOrder(out.ComputeEnvironmentOrder))
-	r.Priority = flex.Int64ToFrameworkLegacy(ctx, out.Priority)
-	r.SchedulingPolicyARN = flex.StringToFrameworkARN(ctx, out.SchedulingPolicyArn)
-	r.State = flex.StringToFrameworkLegacy(ctx, out.State)
-
-	setTagsOut(ctx, out.Tags)
-
-	return diags
+type computeEnvironmentOrder struct {
+	ComputeEnvironment types.String `tfsdk:"compute_environment"`
+	Order              types.Int64  `tfsdk:"order"`
 }
+
+// func (r *resourceJobQueueData) refreshFromOutput(ctx context.Context, out *batch.JobQueueDetail) diag.Diagnostics { //nolint:unparam
+// 	var diags diag.Diagnostics
+
+// 	// r.ARN = flex.StringToFrameworkLegacy(ctx, out.JobQueueArn)
+// 	// r.JobQueueName = flex.StringToFramework(ctx, out.JobQueueName)
+// 	// r.ComputeEnvironments = flex.FlattenFrameworkStringValueListLegacy(ctx, flattenComputeEnvironmentOrder(out.ComputeEnvironmentOrder))
+// 	// r.Priority = flex.Int64ToFrameworkLegacy(ctx, out.Priority)
+// 	// r.SchedulingPolicyARN = flex.StringToFrameworkARN(ctx, out.SchedulingPolicyArn)
+// 	// r.State = flex.StringToFrameworkLegacy(ctx, out.State)
+
+// 	setTagsOut(ctx, out.Tags)
+
+// 	return diags
+// }
 
 func expandComputeEnvironmentOrder(order []string) (envs []*batch.ComputeEnvironmentOrder) {
 	for i, env := range order {

@@ -16,9 +16,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-provider-aws/internal/framework"
-	fwtypes "github.com/hashicorp/terraform-provider-aws/internal/framework/types"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
+
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
@@ -94,7 +95,7 @@ func upgradeJobQueueResourceStateV0toV1(ctx context.Context, req resource.Upgrad
 	jobQueueDataV2 := resourceJobQueueData{
 		ComputeEnvironments: jobQueueDataV0.ComputeEnvironments,
 		ID:                  jobQueueDataV0.ID,
-		Name:                jobQueueDataV0.Name,
+		JobQueueName:        jobQueueDataV0.Name,
 		Priority:            jobQueueDataV0.Priority,
 		State:               jobQueueDataV0.State,
 		Tags:                jobQueueDataV0.Tags,
@@ -103,7 +104,7 @@ func upgradeJobQueueResourceStateV0toV1(ctx context.Context, req resource.Upgrad
 	}
 
 	if jobQueueDataV0.SchedulingPolicyARN.ValueString() == "" {
-		jobQueueDataV2.SchedulingPolicyARN = fwtypes.ARNNull()
+		jobQueueDataV2.SchedulingPolicyARN = basetypes.NewStringNull()
 	}
 
 	diags := resp.State.Set(ctx, jobQueueDataV2)
